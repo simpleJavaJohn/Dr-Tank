@@ -1,0 +1,692 @@
+#lang racket
+(require 2htdp/image)
+(require 2htdp/universe)
+
+(define CSIZE 8)
+(define STARTMENU (overlay/offset .
+                                  0 -150
+                                  (overlay/offset (text/font "DrTank" 70 (color 62 91 169) #f 'swiss 'normal 'bold #f)
+                                                  0 130
+                                                  (underlay/xy (underlay/xy (square 600 'solid 'burlywood)
+                                                                            165 280 (overlay (text/font "Play" 20 'black #f 'swiss 'normal 'bold #f) (rectangle 70 40 'solid (color 159 29 32))))
+                                                               365 280 (overlay (text/font "Credits" 17 'black #f 'swiss 'normal 'bold #f) (rectangle 70 40 'solid (color 159 29 32)))))))
+(define ENDMENU (overlay (above  (text "This is the credits. This is roll credits classmate." CSIZE 'black)
+                                 (text "If you don't wanna sit through the credits get your butt up and walk out the classroom" CSIZE 'black)
+                                 (text "First and foremost my entire Comp Sci team, thank you, man." CSIZE 'black)
+                                 (text "Before that I'm buggin, thank you, God! Oh my God." CSIZE 'black)
+                                 (text "Everything happened too perfectly and in line, this whole thing." CSIZE 'black)
+                                 (text "Thank you Dr Hochberg we made it. El Presidente what up! We killed this thing." CSIZE 'black)
+                                 (text "My boy Gabe. We came a long way from defining structs and if statements to posns and conds." CSIZE 'black)
+                                 (text "Tommy, I shoulda been coming to you. You only play the classics though." CSIZE 'black)
+                                 (text "And Jonah! Oh, Jonah Hill! How could I forget Jonah Hill! Nah, I'm just playing. I don't know that guy." CSIZE 'black)
+                                 (text "My Mama OOOOOOH, I love you! I'm so grateful and blessed to have you in my life." CSIZE 'black))
+                         (underlay/xy (square 600 'solid 'burlywood)
+                                      20 540 (overlay (above (text/font "Back to" 10 'black #f 'swiss 'normal 'bold #f)
+                                                             (text/font "Main Menu" 10 'black #f 'swiss 'normal 'bold #f))
+                                                      (rectangle 70 40 'solid (color 159 29 32))))))
+(define GOOD (overlay/align "right" "middle" (square 4 'solid 'yellow) (rectangle 30 15 'solid 'forestgreen)))
+(define BAD1 (overlay/align "right" "middle" (square 4 'solid 'yellow) (rectangle 30 15 'solid 'red)))
+(define BAD2 (overlay/align "right" "middle" (square 7 'solid 'yellow) (circle 10 'solid 'firebrick)))
+(define BAD3 (overlay/align "right" "middle" (square 4 'solid 'red) (rectangle 30 15 'solid 'darkred)))
+(define BULLGOOD (rectangle 10 3 'solid 'blue))
+(define BULLBAD1 (rectangle 10 3 'solid 'red))
+(define BULLBAD2 (rectangle 10 3 'solid 'firebrick))
+(define BULLBAD3 (rectangle 10 3 'solid 'red))
+(define BCOLOR 'saddlebrown)
+(define BRICK (square 40 'solid BCOLOR))
+(define BRACKET .)
+(define LVL1 (overlay (square 600 235 'navajowhite) BRACKET))
+(define LVL2 (overlay (square 600 235 'palegreen) BRACKET))
+(define LVL3 (overlay (square 600 235 'thistle) BRACKET))
+(define LVL4 (overlay (square 600 235 'white) BRACKET))
+(define GOODSP 6)
+(define BAD1SP 5)
+(define BAD2SP 2)
+(define BAD3SP 10)
+(define BULLET1SP 7)
+(define BULLBAD1SP 10)
+(define BULLBAD2SP 8)
+(define BULLBAD3SP 11)
+(define TIMETOSHOOT 20)
+(define BADTIMETOSHOOT1 60)
+(define BADTIMETOSHOOT2 35)
+(define BADTIMETOSHOOT3 18)
+(define HOMINGAMMOUNT1 2)
+(define HOMINGAMMOUNT2 5)
+(define HOMINGAMMOUNT3 2)
+(define RADFORBAD1 120)
+(define RADFORBAD2 100)
+(define RADFORBAD3 100)
+(define RADFORGOOD 120)
+(define TANKSINLVL3 5)
+(define WALLSINLVL3 25)
+
+; ==WorldState Structure==
+; tank - tank structure: my good tank
+; loT - list of tanks: all bad tanks
+; loB - List of bullets: all bullets
+; loW - List of walls: all walls
+; lvl - string: refers to the level or menu screen
+; loK - list of strings: all usuable keys currently pressed
+(define-struct WS (tank loT loB loW lvl loK))
+
+; ==Tank Structure==
+; x - number: X position
+; y - number: Y position
+; dir - number: integer from 0 359 indicating direction
+; spd - number: the rate it moves
+; type - string: which team it is on
+(define-struct tank (x y dir spd type tSinceShot))
+
+; ==Bullet Structure==
+; x - number: X position
+; y - number: Y position
+; dir - number: integer from 0 359 indicating direction
+; spd - number: the rate it moves
+; type - string: which kind of bullet it is
+(define-struct bullet (x y dir spd type))
+
+; ==Wall Structure==
+; x - number: X position
+; y - number: Y position
+; type - string: which kind of wall it is
+(define-struct wall (x y type))
+
+
+#||||||||||||||RENDER||||||||||||||#
+; WorldState -> Image
+(define (render ws)
+  (cond [(or (string=? (WS-lvl ws) "STARTMENU") (string=? (WS-lvl ws) "ENDMENU")) (render-menu ws)]
+        [else (render-game ws)]))
+
+; WorldState -> Image
+(define (render-menu ws)
+  (cond [(string=? (WS-lvl ws) "STARTMENU") STARTMENU]
+        [else ENDMENU]))
+
+; WorldState -> Image
+(define (render-game ws)
+  (draw-walls (WS-loW ws)
+              (draw-tanks (cons (WS-tank ws) (WS-loT ws))
+                          (draw-bullets-scene (WS-loB ws)
+                                              (WS-lvl ws)))))
+
+; List of bullets, String -> Image
+(define (draw-bullets-scene loB lvl)
+  (foldl draw-one-bullet (cond [(string=? lvl "LVL1") LVL1]
+                               [(string=? lvl "LVL2") LVL2]
+                               [(string=? lvl "LVL3") LVL3]
+                               [(string=? lvl "LVL4") LVL4]) loB))
+
+; Bullet, Image -> Image
+(define (draw-one-bullet bullet scene)
+  (place-image (rotate (bullet-dir bullet) (cond [(string=? (bullet-type bullet) "BULLGOOD") BULLGOOD]
+                                                 [(string=? (bullet-type bullet) "BULLBAD1") BULLBAD1]
+                                                 [(string=? (bullet-type bullet) "BULLBAD2") BULLBAD2]
+                                                 [(string=? (bullet-type bullet) "BULLBAD3") BULLBAD3]))
+               (bullet-x bullet)
+               (bullet-y bullet)
+               scene))
+
+; List of tanks, Image -> Image
+(define (draw-tanks loT scene)
+  (foldl draw-one-tank scene loT))
+
+; Tank, Image -> Image
+(define (draw-one-tank tank scene)
+  (place-image (rotate (tank-dir tank) (cond [(string=? (tank-type tank) "GOOD") GOOD]
+                                             [(string=? (tank-type tank) "BAD1") BAD1]
+                                             [(string=? (tank-type tank) "BAD2") BAD2]
+                                             [(string=? (tank-type tank) "BAD3") BAD3]))
+               (tank-x tank) (tank-y tank)
+               scene))
+
+; List of Walls, Image -> Image
+(define (draw-walls loW scene)
+  (foldl draw-one-wall scene loW))
+
+; Wall, Image -> Image
+(define (draw-one-wall wall scene)
+  (place-image (cond [(string=? (wall-type wall) "BRICK") BRICK])
+               (wall-x wall) (wall-y wall) scene))
+
+
+#||||||||||||||TOCK||||||||||||||#
+; WorldState -> WorldState
+(define (tock ws)
+  (cond [(or (string=? (WS-lvl ws) "STARTMENU") (string=? (WS-lvl ws) "ENDMENU")) (tock-menu ws)]
+        [else (tock-game ws)]))
+
+; WorldState -> WorldState
+(define (tock-menu ws) ws)
+
+; WorldState -> WorldState
+(define (tock-game ws)
+  (update-lvl (make-WS (update-good-tank ws)
+                       (update-tanks ws)
+                       (update-bullets ws)
+                       (WS-loW ws)
+                       (WS-lvl ws)
+                       (WS-loK ws))))
+
+
+; WorldState -> Tank
+(define (update-good-tank ws)
+  (move-good-tank (make-tank (tank-x (WS-tank ws))
+                             (tank-y (WS-tank ws))
+                             (loK->dir (WS-loK ws) (tank-dir (WS-tank ws)))
+                             (update-speed ws)
+                             (tank-type (WS-tank ws))
+                             (update-tSinceShot ws))))
+
+; WorldState -> Boolean
+(define (move-x tank)
+  (+ (tank-x tank)
+     (* (tank-spd tank)
+        (cos (d-r (tank-dir tank))))))
+
+; WorldState -> Boolean
+(define (move-y tank)
+  (+ (tank-y tank) (* (tank-spd tank) (- (sin (d-r (tank-dir tank)))))))
+
+; WorldState -> Number
+(define (update-speed ws)
+  (if (or (empty? (remove " " (WS-loK ws))) (tank-hit-walls (move-x (WS-tank ws))
+                                                            (move-y (WS-tank ws))
+                                                            (WS-loW ws))) 0
+      (cond [(string=? (tank-type (WS-tank ws)) "GOOD") GOODSP]
+            [(string=? (tank-type (WS-tank ws)) "BAD1") BAD1SP]
+            [(string=? (tank-type (WS-tank ws)) "BAD2") BAD2SP]
+            [(string=? (tank-type (WS-tank ws)) "BAD3") BAD3SP])))
+
+; Number, Number, List of walls -> Boolean
+(define (tank-hit-walls TX TY loW)
+  (cond [(empty? loW) #f]
+        [(tank-hit-wall TX TY (wall-x (first loW)) (wall-y (first loW))) #t]
+        [else (tank-hit-walls TX TY (rest loW))]))
+
+; Number, Number, Number, Number -> Boolean
+(define (tank-hit-wall TX TY WX WY)
+  (and (>= (+ WX 20) TX (- WX 20))
+       (>= (+ WY 20) TY (- WY 20))))
+
+; List of strings, String -> String
+(define (loK->dir loK curDir)
+  (cond [(and (cont? loK "w") (cont? loK "a")) 135]
+        [(and (cont? loK "w") (cont? loK "d"))  45]
+        [(and (cont? loK "s") (cont? loK "a")) 225]
+        [(and (cont? loK "s") (cont? loK "d")) 315]
+        [(cont? loK "w")  90]
+        [(cont? loK "a") 180]
+        [(cont? loK "s") 270]
+        [(cont? loK "d")   0]
+        [else curDir]))
+
+; WorldState -> Number
+(define (update-tSinceShot ws) (cond [(and (= (tank-tSinceShot (WS-tank ws)) 0)
+                                           (cont? (WS-loK ws) " ")) TIMETOSHOOT]
+                                     [(= (tank-tSinceShot (WS-tank ws)) 0) 0]
+                                     [else (- (tank-tSinceShot (WS-tank ws)) 1)]))
+; Tank -> Tank
+(define (move-good-tank tank)
+  (make-tank (move-x tank)
+             (move-y tank)
+             (tank-dir tank)
+             (cond [(string=? (tank-type tank) "GOOD") GOODSP]
+                   [(string=? (tank-type tank) "BAD1") BAD1SP]
+                   [(string=? (tank-type tank) "BAD2") BAD2SP]
+                   [(string=? (tank-type tank) "BAD3") BAD3SP])
+             (tank-type tank)
+             (tank-tSinceShot tank)))
+
+
+; WorldState -> List of tanks
+(define (update-tanks ws)
+  (move-bad-tanks (rem-bullet-hits (map move-one-bullet (WS-loB ws))
+                                   (WS-loT ws))
+                  (WS-loW ws)))
+
+; Bullet -> Bullet
+(define (move-one-bullet bullet)
+  (make-bullet (+ (bullet-x bullet) (* (bullet-spd bullet) (cos (d-r (bullet-dir bullet)))))
+               (+ (bullet-y bullet) (* (bullet-spd bullet) (- (sin (d-r (bullet-dir bullet))))))
+               (bullet-dir bullet)
+               (bullet-spd bullet)
+               (bullet-type bullet)))
+
+; List of tanks, List of walls -> List of tanks
+(define (move-bad-tanks loT loW)
+  (if (empty? loT) '()
+      (local [(define BT (first loT))]
+        (cond [(tank-hit-walls (move-x BT) (move-y BT) loW)
+               (cons (make-tank (tank-x BT)
+                                (tank-y BT)
+                                (random 360)
+                                (tank-spd BT)
+                                (tank-type BT)
+                                (if (> (tank-tSinceShot BT) 0)
+                                    (- (tank-tSinceShot BT) 1)
+                                    (+ (cond [(string=? (tank-type BT) "BAD1") BADTIMETOSHOOT1]
+                                             [(string=? (tank-type BT) "BAD2") BADTIMETOSHOOT2]
+                                             [(string=? (tank-type BT) "BAD3") BADTIMETOSHOOT3]) (random 20))))
+                     (move-bad-tanks (rest loT) loW))]
+              [else (cons (make-tank (move-x BT)
+                                     (move-y BT)
+                                     (tank-dir BT)
+                                     (tank-spd BT)
+                                     (tank-type BT)
+                                     (if (> (tank-tSinceShot BT) 0)
+                                         (- (tank-tSinceShot BT) 1)
+                                         (+ (cond [(string=? (tank-type BT) "BAD1") BADTIMETOSHOOT1]
+                                                  [(string=? (tank-type BT) "BAD2") BADTIMETOSHOOT2]
+                                                  [(string=? (tank-type BT) "BAD3") BADTIMETOSHOOT3]) (random 20))))
+                          (move-bad-tanks (rest loT) loW))]))))
+
+; List of bullets, List of tanks -> List of tanks
+(define (rem-bullet-hits loB loT)
+  (cond [(empty? loT) '()]
+        [(hit-bullets? (first loT) loB) (rem-bullet-hits loB (rest loT))]
+        [else (cons (first loT) (rem-bullet-hits loB (rest loT)))]))
+
+; Tank, List of bullets -> boolean
+(define (hit-bullets? tank loB)
+  (cond [(empty? loB) #f]
+        [(hit-tank? (first loB) tank) #t]
+        [else (hit-bullets? tank (rest loB))]))
+
+
+; WorldState -> List of bullets
+(define (update-bullets ws)
+  (rem-tank-hits (WS-loT ws)
+                 (rem-wall-hits (WS-loW ws)
+                                (move-bullets (new-bullet ws) (WS-tank ws)))))
+
+; WorldState -> List of bullets
+(define (new-bullet ws)
+  (append (new-bad-bullets (WS-loT ws) (WS-tank ws))
+          (cond [(> (tank-tSinceShot (WS-tank ws)) 0) (WS-loB ws)]
+                [(cont? (WS-loK ws) " ") (cons (make-bullet (tank-x (WS-tank ws))
+                                                            (tank-y (WS-tank ws))
+                                                            (tank-dir (WS-tank ws))
+                                                            BULLET1SP
+                                                            "BULLGOOD") (WS-loB ws))]
+                [else (WS-loB ws)])))
+
+; List of tanks, Tank -> List of bullets
+(define (new-bad-bullets loT tank)
+  (cond [(empty? loT) '()]
+        [(= (tank-tSinceShot (first loT)) 0)
+         (cons (make-bullet (tank-x (first loT))
+                            (tank-y (first loT))
+                            (dir-to-tank (tank-x (first loT))
+                                         (tank-y (first loT))
+                                         (tank-x tank)
+                                         (tank-y tank))
+                            (cond [(string=? (tank-type (first loT)) "BAD1") BULLBAD1SP]
+                                  [(string=? (tank-type (first loT)) "BAD2") BULLBAD2SP]
+                                  [(string=? (tank-type (first loT)) "BAD3") BULLBAD3SP])
+                            (cond [(string=? (tank-type (first loT)) "BAD1") "BULLBAD1"]
+                                  [(string=? (tank-type (first loT)) "BAD2") "BULLBAD2"]
+                                  [(string=? (tank-type (first loT)) "BAD3") "BULLBAD3"]))
+               (new-bad-bullets (rest loT) tank))]
+        [else (new-bad-bullets (rest loT) tank)]))
+
+; List of Bullets, Tank -> List of bullets
+(define (move-bullets loB tank)
+  (cond [(empty? loB) '()]
+        [(string=? (bullet-type (first loB)) "BULLGOOD") (cons (move-bullet-straight (first loB))
+                                                               (move-bullets (rest loB) tank))]
+        [(move-left? (bullet-x (first loB))
+                     (bullet-y (first loB))
+                     (bullet-dir (first loB))
+                     (tank-x tank)
+                     (tank-y tank)) (cons (move-bullet-left (first loB) tank)
+                                          (move-bullets (rest loB) tank))]
+        [else (cons (move-bullet-right (first loB) tank)
+                    (move-bullets (rest loB) tank))]))
+
+; Number, Number, Number, Number, Number -> Boolean
+(define (move-left? BX BY BDIR TX TY)
+  (local [(define DIRTOTANK (dir-to-tank BX BY TX TY))]
+    (if (<= BDIR 180) (> (+ BDIR 180) DIRTOTANK BDIR)
+        (or (> DIRTOTANK BDIR)
+            (< DIRTOTANK (modulo (+ BDIR 180) 360))))))
+
+; Bullet, Tank -> Bullet
+(define (move-bullet-left bullet tank)
+  (make-bullet (+ (bullet-x bullet) (* (bullet-spd bullet) (cos (d-r (bullet-dir bullet)))))
+               (+ (bullet-y bullet) (* (bullet-spd bullet) (- (sin (d-r (bullet-dir bullet))))))
+               (modulo (+ (bullet-dir bullet) (cond [(string=? (bullet-type bullet) "BULLBAD1") HOMINGAMMOUNT1]
+                                                    [(string=? (bullet-type bullet) "BULLBAD2") HOMINGAMMOUNT2]
+                                                    [(string=? (bullet-type bullet) "BULLBAD3") HOMINGAMMOUNT3])) 360)
+               (bullet-spd bullet)
+               (bullet-type bullet)))
+
+; Bullet, Tank -> Bullet
+(define (move-bullet-right bullet tank)
+  (make-bullet (+ (bullet-x bullet) (* (bullet-spd bullet) (cos (d-r (bullet-dir bullet)))))
+               (+ (bullet-y bullet) (* (bullet-spd bullet) (- (sin (d-r (bullet-dir bullet))))))
+               (modulo (+ (- (bullet-dir bullet) (cond [(string=? (bullet-type bullet) "BULLBAD1") HOMINGAMMOUNT1]
+                                                       [(string=? (bullet-type bullet) "BULLBAD2") HOMINGAMMOUNT2]
+                                                       [(string=? (bullet-type bullet) "BULLBAD3") HOMINGAMMOUNT3])) 360) 360)
+               (bullet-spd bullet)
+               (bullet-type bullet)))
+
+; Bullet -> Bullet
+(define (move-bullet-straight bullet)
+  (make-bullet (+ (bullet-x bullet) (* (bullet-spd bullet)    (cos (d-r (bullet-dir bullet)))))
+               (+ (bullet-y bullet) (* (bullet-spd bullet) (- (sin (d-r (bullet-dir bullet))))))
+               (bullet-dir bullet)
+               (bullet-spd bullet)
+               (bullet-type bullet)))
+
+; List of walls, List of bullets -> List of bullets
+(define (rem-wall-hits loW loB)
+  (cond [(empty? loB) '()]
+        [(hit-walls? (first loB) loW) (rem-wall-hits loW (rest loB))]
+        [else (cons (first loB) (rem-wall-hits loW (rest loB)))]))
+
+; Bullet, List of walls -> Boolean
+(define (hit-walls? bullet loW)
+  (cond [(empty? loW) #f]
+        [(hit-wall? (bullet-x bullet) (bullet-y bullet) (wall-x (first loW)) (wall-y (first loW))) #t]
+        [else (hit-walls? bullet (rest loW))]))
+
+; Number, Number, Number, Number -> Boolean
+(define (hit-wall? BX BY WX WY)
+  (and (> (+ WX 20) BX (- WX 20))
+       (> (+ WY 20) BY (- WY 20))))
+
+; List of Tanks, List of bullets -> List of bullets
+(define (rem-tank-hits loT loB)
+  (cond [(empty? loB) '()]
+        [(hit-tanks? (first loB) loT) (rem-tank-hits loT (rest loB))]
+        [else (cons (first loB) (rem-tank-hits loT (rest loB)))]))
+
+; Bullet, List of tanks -> Boolean
+(define (hit-tanks? bullet loT)
+  (cond [(empty? loT) #f]
+        [(hit-tank? bullet (first loT)) #t]
+        [else (hit-tanks? bullet (rest loT))]))
+
+; Bullet, Tank -> Boolean
+(define (hit-tank? bullet tank)
+  (local [(define BX (bullet-x bullet))
+          (define BY (bullet-y bullet))
+          (define BT (bullet-type bullet))
+          (define TX (tank-x tank))
+          (define TY (tank-y tank))
+          (define TT (tank-type tank))]
+    (or (and (string=? BT "BULLGOOD")
+             (string=? TT "BAD1")
+             (<= (dist BX BY TX TY) RADFORBAD1))
+        (and (string=? BT "BULLGOOD")
+             (string=? TT "BAD2")
+             (<= (dist BX BY TX TY) RADFORBAD2))
+        (and (string=? BT "BULLGOOD")
+             (string=? TT "BAD3")
+             (<= (dist BX BY TX TY) RADFORBAD3))
+        (and (or (string=? BT "BULLBAD1") (string=? BT "BULLBAD2") (string=? BT "BULLBAD3"))
+             (string=? TT "GOOD")
+             (<= (dist BX BY TX TY) RADFORGOOD)))))
+
+; WorldState -> WorldState
+(define (update-lvl ws)
+  (cond [(and (empty? (WS-loT ws)) (string=? (WS-lvl ws) "LVL1")) (make-lvl2-ws)]
+        [(and (empty? (WS-loT ws)) (string=? (WS-lvl ws) "LVL2")) (make-lvl3-ws)]
+        [(and (empty? (WS-loT ws)) (string=? (WS-lvl ws) "LVL3")) (make-lvl4-ws)]
+        [(and (empty? (WS-loT ws)) (string=? (WS-lvl ws) "LVL4")) (make-end-menu-ws)]
+        [(and (dead-tank? (WS-tank ws) (WS-loB ws)) (string=? (WS-lvl ws) "LVL1")) (make-lvl1-ws)]
+        [(and (dead-tank? (WS-tank ws) (WS-loB ws)) (string=? (WS-lvl ws) "LVL2")) (make-lvl2-ws)]
+        [(and (dead-tank? (WS-tank ws) (WS-loB ws)) (string=? (WS-lvl ws) "LVL3")) (make-lvl3-ws)]
+        [(and (dead-tank? (WS-tank ws) (WS-loB ws)) (string=? (WS-lvl ws) "LVL4")) (make-lvl4-ws)]
+        [else ws]))
+
+; WorldState -> Boolean
+(define (dead-tank? tank loB)
+  (cond [(empty? loB) #f]
+        [(hit-tank? (first loB) tank) #t]
+        [else (dead-tank? tank (rest loB))]))
+
+
+#||||||||||||||LEVELS||||||||||||||#
+; -> List
+(define (make-side-walls)
+  (append (build-list 15 (λ (x) (make-wall (+ 20 (* 40 x))  20 "BRICK")))
+          (build-list 15 (λ (x) (make-wall (+ 20 (* 40 x)) 580 "BRICK")))
+          (build-list 13 (λ (x) (make-wall 20  (+ 20 (* 40 (+ x 1))) "BRICK")))
+          (build-list 13 (λ (x) (make-wall 580 (+ 20 (* 40 (+ x 1))) "BRICK")))))
+
+; -> WorldState
+(define (make-lvl1-ws)
+  (make-WS (make-tank 300 540 0 0 "GOOD" 0)
+           (list (make-tank 180 60 (random 360) BAD1SP "BAD1" BADTIMETOSHOOT1)
+                 (make-tank 300 60 (random 360) BAD1SP "BAD1" BADTIMETOSHOOT1)
+                 (make-tank 420 60 (random 360) BAD1SP "BAD1" BADTIMETOSHOOT1))
+           '()
+           (append (make-side-walls)
+                   (build-list 9 (λ (x) (make-wall (+ 140 (* 40 x)) 100 "BRICK")))
+                   (build-list 9 (λ (x) (make-wall (+ 140 (* 40 x)) 500 "BRICK")))
+                   (list (make-wall 60  180 "BRICK")
+                         (make-wall 60  420 "BRICK")
+                         (make-wall 540 180 "BRICK")
+                         (make-wall 540 420 "BRICK")
+                         (make-wall 260 260 "BRICK")
+                         (make-wall 340 340 "BRICK")
+                         (make-wall 340 260 "BRICK")
+                         (make-wall 260 340 "BRICK")))
+           "LVL1"
+           '()))
+
+; -> WorldState
+(define (make-lvl2-ws)
+  (make-WS (make-tank 300 300 0 0 "GOOD" 0)
+           (list (make-tank 60   60 (random 360) BAD2SP "BAD2" BADTIMETOSHOOT2)
+                 (make-tank 60  540 (random 360) BAD2SP "BAD2" BADTIMETOSHOOT2)
+                 (make-tank 540  60 (random 360) BAD2SP "BAD2" BADTIMETOSHOOT2)
+                 (make-tank 540 540 (random 360) BAD2SP "BAD2" BADTIMETOSHOOT2))
+           '()
+           (append (make-side-walls)
+                   (build-list 5 (λ (x) (make-wall (+ 60  (*  40 x)) 300 "BRICK")))
+                   (build-list 5 (λ (x) (make-wall (+ 540 (* -40 x)) 300 "BRICK")))
+                   (build-list 5 (λ (x) (make-wall 300 (+ 60  (*  40 x)) "BRICK")))
+                   (build-list 5 (λ (x) (make-wall 300 (+ 540 (* -40 x)) "BRICK"))))
+           "LVL2"
+           '()))
+
+; -> WorldState
+(define (make-lvl3-ws)
+  (spaced-good-tank (spaced-tanks (make-WS (make-tank 0 0 0 0 "GOOD" 0)
+                                           '()
+                                           '()
+                                           (append (make-side-walls)
+                                                   (spaced-walls WALLSINLVL3))
+                                           "LVL3"
+                                           '()) TANKSINLVL3)))
+
+; -> WorldState
+(define (make-lvl4-ws)
+  (make-WS (make-tank 300 380 0 0 "GOOD" 0)
+           (list (make-tank 300 220 (random 360) BAD3SP "BAD3" BADTIMETOSHOOT3))
+           '()
+           (append (build-list 7 (λ (x) (make-wall (+ 180 (* 40 x)) 180 "BRICK")))
+                   (build-list 7 (λ (x) (make-wall (+ 180 (* 40 x)) 420 "BRICK")))
+                   (build-list 5 (λ (x) (make-wall 180 (+ 220 (* 40 x)) "BRICK")))
+                   (build-list 5 (λ (x) (make-wall 420 (+ 220 (* 40 x)) "BRICK"))))
+           "LVL4"
+           '()))
+
+; WorldState, Number -> WorldState
+(define (spaced-tanks ws n)
+  (make-WS (WS-tank ws)
+           (spaced-tanks-H (WS-loW ws) n '())
+           (WS-loB ws)
+           (WS-loW ws)
+           (WS-lvl ws)
+           (WS-loK ws)))
+
+; List of walls, Number, List of tanks -> 
+(define (spaced-tanks-H loW n loT)
+  (if (= n 0) loT
+      (local [(define candidate (make-tank (+ 60 (* (random 13) 40))
+                                           (+ 60 (* (random 13) 40))
+                                           (random 360) BAD1SP "BAD1" BADTIMETOSHOOT1))]
+        (if (and (good-wall-spacing? loW candidate)
+                 (good-tank-spacing? loT candidate))
+            (spaced-tanks-H loW (- n 1) (cons candidate loT))
+            (spaced-tanks-H loW n loT)))))
+
+; List of walls, Tank -> Boolean
+(define (good-wall-spacing? loW candidate)
+  (< (good-wall-spacing?-H loW candidate) 4))
+
+; List of walls, Tank -> Boolean
+(define (good-wall-spacing?-H loW candidate)
+  (if (empty? loW) 0
+      (local [(define WX (wall-x (first loW)))
+              (define WY (wall-y (first loW)))
+              (define TX (tank-x candidate))
+              (define TY (tank-y candidate))]
+        (+ (cond [(and (= WX TX) (= WY TY)) 4]
+                 [(and (= WX TX) (>= (+ TY 40) WY (- TY 40))) 1]
+                 [(and (>= (+ TX 40) WX (- TX 40)) (= WY TY)) 1]
+                 [else 0]) (good-wall-spacing?-H (rest loW) candidate)))))
+
+; List of tanks, Tank -> Bolean
+(define (good-tank-spacing? loT candidate)
+  (if (empty? loT) #t
+      (local [(define TX (tank-x (first loT)))
+              (define TY (tank-y (first loT)))
+              (define CX (tank-x candidate))
+              (define CY (tank-y candidate))]
+        (if (and (= TX CX) (= TX CY)) #f (good-tank-spacing? (rest loT) candidate)))))
+
+; WorldState -> WorldState
+(define (spaced-good-tank ws)
+  (make-WS (spaced-good-tank-H (WS-loW ws) (WS-loT ws))
+           (WS-loT ws)
+           (WS-loB ws)
+           (WS-loW ws)
+           (WS-lvl ws)
+           (WS-loK ws)))
+
+; List of walls, List of tanks -> Tank
+(define (spaced-good-tank-H loW loT)
+  (local [(define candidate (make-tank (+ 60 (* (random 13) 40))
+                                       (+ 60 (* (random 13) 40))
+                                       0 0 "GOOD" 0))]
+    (if (and (good-wall-spacing? loW candidate)
+             (good-tank-spacing? loT candidate))
+        candidate
+        (spaced-good-tank-H loW loT))))
+
+; -> WorldState
+(define (make-start-menu-ws)
+  (make-WS 0 0 0 0 "STARTMENU" 0))
+; -> WorldState
+(define (make-end-menu-ws)
+  (make-WS 0 0 0 0 "ENDMENU" 0))
+
+; Number -> List of walls
+(define (spaced-walls count)
+  (spaced-walls-H count '()))
+
+; Number, List -> List of walls
+(define (spaced-walls-H count list)
+  (if (= count 0) list
+      (local [(define candidate (make-wall (+ 60 (* (random 13) 40)) (+ 60 (* (random 13) 40)) "BRICK"))]
+        (if (cont-w? list candidate)
+            (spaced-walls-H count list)
+            (spaced-walls-H (- count 1) (cons candidate list))))))
+
+; List of walls, Wall -> Boolean
+(define (cont-w? loW wall)
+  (cond [(empty? loW) #f]
+        [(and (= (wall-x (first loW)) (wall-x wall)) (= (wall-y (first loW)) (wall-y wall))) #t]
+        [else (cont-w? (rest loW) wall)]))
+
+
+#||||||||||||||HANDLERS||||||||||||||#
+; WorldState, Key-hit -> WorldState
+(define (kh ws a-key)
+  (cond [(or (string=? (WS-lvl ws) "STARTMENU") (string=? (WS-lvl ws) "ENDMENU")) (kh-menu ws a-key)]
+        [else (kh-game ws a-key)]))
+
+; WorldState, Key-hit -> WorldState
+(define (kh-menu ws a-key) ws)
+
+; WorldState, Key-hit -> WorldState
+(define (kh-game ws a-key)
+  (cond [(and (key=? a-key "w") (ncont? (WS-loK ws) "w")) (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "s" (cons "w" (WS-loK ws))))]
+        [(and (key=? a-key "a") (ncont? (WS-loK ws) "a")) (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "d" (cons "a" (WS-loK ws))))]
+        [(and (key=? a-key "s") (ncont? (WS-loK ws) "s")) (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "w" (cons "s" (WS-loK ws))))]
+        [(and (key=? a-key "d") (ncont? (WS-loK ws) "d")) (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "a" (cons "d" (WS-loK ws))))]
+        [(and (key=? a-key " ") (ncont? (WS-loK ws) " ")) (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (cons " " (WS-loK ws)))]
+        [else ws]))
+
+; WorldState, Key-hit -> WorldState
+(define (rh ws a-key)
+  (cond [(or (string=? (WS-lvl ws) "STARTMENU") (string=? (WS-lvl ws) "ENDMENU")) ws]
+        [else (rh-game ws a-key)]))
+; WorldState, Key-release -> WorldState
+(define (rh-game ws a-key)
+  (cond [(key=? a-key "w") (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "w" (WS-loK ws)))]
+        [(key=? a-key "a") (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "a" (WS-loK ws)))]
+        [(key=? a-key "s") (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "s" (WS-loK ws)))]
+        [(key=? a-key "d") (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove "d" (WS-loK ws)))]
+        [(key=? a-key " ") (make-WS (WS-tank ws) (WS-loT ws) (WS-loB ws) (WS-loW ws) (WS-lvl ws) (remove " " (WS-loK ws)))]
+        [else ws]))
+
+; WorldState, a b c -> WorldState
+(define (mh ws a b c)
+  (cond [(or (string=? (WS-lvl ws) "STARTMENU") (string=? (WS-lvl ws) "ENDMENU")) (mh-menu ws a b c)]
+        [else ws]))
+
+; WorldState, a b c -> WorldState
+(define (mh-menu ws X Y MEVENT)
+  (cond [(and (string=? (WS-lvl ws) "STARTMENU")
+              (mouse=? MEVENT "button-down")
+              (> 235 X 165)
+              (> 320 Y 289)) (make-lvl1-ws)]
+        [(and (string=? (WS-lvl ws) "STARTMENU")
+              (mouse=? MEVENT "button-down")
+              (> 435 X 365)
+              (> 320 Y 280)) (make-end-menu-ws)]
+        [(and (string=? (WS-lvl ws) "ENDMENU")
+              (mouse=? MEVENT "button-down")
+              (> 90 X 20)
+              (> 580 Y 540)) (make-start-menu-ws)]
+        [else ws]))
+
+
+#||||||||||||||GENERAL HELPERS||||||||||||||#
+; Number, Number, Number, Number -> Number
+(define (dir-to-tank BX BY GX GY)
+  (modulo (exact-round (+ (* (/ (atan (- BY GY) (- GX BX)) pi) 180) 360)) 360))
+
+; List of strings, string -> boolean
+(define (ncont? los s)
+  (cond [(empty? los) #t]
+        [(string=? (first los) s) #f]
+        [else (ncont? (rest los) s)]))
+(define (cont? los s)
+  (cond [(empty? los) #f]
+        [(string=? (first los) s) #t]
+        [else (cont? (rest los) s)]))
+
+; Number -> Number
+(define (d-r deg) (* deg (/ pi 180)))
+
+; Number, Number, Number, Number -> Number
+(define (dist x1 y1 x2 y2)
+  (+ (sqr (- x1 x2))
+     (sqr (- y1 y2))))
+
+(define INITIAL_WS (make-start-menu-ws))
+
+(big-bang INITIAL_WS
+  (to-draw render)
+  (on-tick tock)
+  (on-key kh)
+  (on-release rh)
+  (on-mouse mh))
